@@ -1,5 +1,24 @@
 const $=id=>document.getElementById(id);let tabId,stream,timer,roi,autoROI,drag,running=false,busy=false,frames=0,epoch=0,staticFrame=false;
-const reports=new Map();
+const reports=new Map();let boostUntil=0,captionsActive=false;
+const acceptHint=HintPolicy.gate();
+const voice=VoiceHints.create({onText:text=>handleHint(text,'voice'),onStatus:status=>{$('voiceStatus').textContent=status;}});
+function handleHint(text,source){
+  if(!HintPolicy.match(text))return;
+  if(!running){$('hintStatus').textContent='检测到可能的签到提示，但扫描尚未开始；不会提交签到';return;}
+  if(!acceptHint(text))return;
+  boostUntil=Date.now()+15000;autoROI=null;
+  $('hintStatus').textContent=`检测到${source==='voice'?'语音':'字幕'}提示：${text.slice(0,80)}。已加速扫描 15 秒；等待当前有效签到码。`;
+  send('attendanceHint',{text:text.slice(0,500),source}).catch(e=>{$('hintStatus').textContent='提示已触发扫描，系统提醒失败：'+e.message;});
+  if(!busy){clearTimeout(timer);timer=setTimeout(tick,0);}
+}
+function startVoice(){if(!$('voiceHints').checked){$('voiceStatus').textContent='请先勾选语音识别并阅读音频处理说明';return;}voice.start(stream?.getAudioTracks()[0]);}
+async function refreshCaptions(){try{const data=await send('captionTabs');$('captionSource').replaceChildren();const initial=document.createElement('option');initial.value='';initial.textContent='请选择课堂标签页';$('captionSource').append(initial);for(const tab of data.tabs){const option=document.createElement('option');option.value=tab.id;option.textContent=tab.title+' · '+tab.host;$('captionSource').append(option);}}catch(e){$('captionStatus').textContent=e.message;}}
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id===chrome.runtime.id&&m.type==='captionDelivery'&&m.to===tabId){if(!captionsActive){reply({ok:true});return;}$('captionStatus').textContent=m.observed?'已读取播放器字幕，正在检测签到提示':'未读取到可用字幕：请打开播放器字幕，或改用语音';if(m.text)handleHint(m.text,'captions');reply({ok:true});}});
+$('captionRefresh').onclick=refreshCaptions;
+$('captionBind').onclick=async()=>{try{const sourceId=Number($('captionSource').value);if(!sourceId)throw Error('请选择课堂标签页');captionsActive=true;await send('captionBind',{sourceId});$('captionStatus').textContent='字幕已绑定，等待播放器字幕更新';}catch(e){captionsActive=false;$('captionStatus').textContent=e.message;}};
+$('captionUnbind').onclick=()=>{captionsActive=false;return send('captionUnbind').then(()=>{$('captionStatus').textContent='字幕读取已停止';}).catch(e=>{$('captionStatus').textContent=e.message;});};
+$('voiceStart').onclick=startVoice;$('voiceStop').onclick=()=>{voice.stop();$('voiceStatus').textContent='语音识别已停止';};
+$('voiceHints').onchange=()=>{if(!$('voiceHints').checked){voice.stop();$('voiceStatus').textContent='语音未启用';}else if(running)startVoice();else $('voiceStatus').textContent='下一次共享时请选择课堂标签页并勾选共享音频';};
 const canvas=$('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true}),work=document.createElement('canvas'),workCtx=work.getContext('2d',{willReadFrequently:true}),video=$('video');
 async function send(type,data={}){const r=await chrome.runtime.sendMessage({type,tabId,...data});if(!r?.ok)throw Error(r?.error||'插件未响应');return r;}
 function diagnostics(lines){$('diagnostics').replaceChildren(...lines.map(s=>{const li=document.createElement('li');li.textContent=s;return li;}));}
@@ -31,18 +50,18 @@ async function analyze(submit){
   }catch(e){$('status').textContent='识别失败：'+e.message;diagnostics(['本帧处理失败，请检查画面或重新加载扩展。']);}finally{busy=false;}
 }
 async function tick(){
-  const began=performance.now();if(!running)return;
+  const began=performance.now();if(!running)return;if(boostUntil&&Date.now()>=boostUntil){boostUntil=0;$('hintStatus').textContent='加速时段结束，已恢复常规扫描；等待下一次提示';}
   try{if(video.readyState<2||!video.videoWidth){$('status').textContent='正在等待共享画面，请检查共享来源是否仍在播放';return;}
     if(!busy){if(work.width!==video.videoWidth||work.height!==video.videoHeight){work.width=video.videoWidth;work.height=video.videoHeight;autoROI=null;}workCtx.drawImage(video,0,0);preview();await analyze(true);}
-  }finally{if(running)timer=setTimeout(tick,Math.max(40,250-(performance.now()-began)));}
+  }finally{if(running)timer=setTimeout(tick,Math.max(40,(Date.now()<boostUntil?100:250)-(performance.now()-began)));}
 }
-async function stop(){epoch++;running=false;clearTimeout(timer);for(const track of stream?.getTracks()||[])track.stop();stream=null;video.srcObject=null;$('start').disabled=false;$('stop').disabled=true;$('status').textContent='扫描已停止';try{await send('monitorStop');}catch(e){$('result').textContent=e.message;}}
+async function stop(){captionsActive=false;voice.stop();boostUntil=0;$('voiceStatus').textContent='语音识别已停止';$('hintStatus').textContent='扫描已停止，语音与字幕不会触发提交';$('captionStatus').textContent='扫描停止后字幕绑定将解除';epoch++;running=false;clearTimeout(timer);for(const track of stream?.getTracks()||[])track.stop();stream=null;video.srcObject=null;$('start').disabled=false;$('stop').disabled=true;$('status').textContent='扫描已停止';try{await send('monitorStop');}catch(e){$('result').textContent=e.message;}}
 $('start').onclick=async()=>{
   try{
     $('status').textContent='请选择课堂标签页、窗口或屏幕进行共享';
-    const selected=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:10,max:15}},audio:false});
+    const selected=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:10,max:15}},audio:$('voiceHints').checked});
     stream=selected;$('status').textContent='已选择共享来源，等待首帧画面';video.srcObject=stream;let playbackTimer;try{await Promise.race([video.play(),new Promise((_,reject)=>{playbackTimer=setTimeout(()=>reject(Error('共享来源未产生视频帧，请重新选择课堂画面')),8000);})]);}finally{clearTimeout(playbackTimer);}await send('monitorStart');epoch++;running=true;staticFrame=false;roi=null;autoROI=null;reports.clear();$('captureRate').textContent=(stream.getVideoTracks()[0].getSettings().frameRate||'未知')+' fps';$('clearROI').disabled=false;$('start').disabled=true;$('stop').disabled=false;
-    stream.getVideoTracks()[0].addEventListener('ended',()=>{if(running)stop();});await tick();
+    stream.getVideoTracks()[0].addEventListener('ended',()=>{if(running)stop();});if($('voiceHints').checked)startVoice();await tick();
   }catch(e){for(const track of stream?.getTracks()||[])track.stop();stream=null;$('status').textContent=e.name==='NotAllowedError'?'未开始共享：请重新选择课堂标签页、窗口或屏幕':'无法开始扫描：'+e.message;}
 };
 $('stop').onclick=stop;$('open').onclick=()=>send('qrOpen').catch(e=>{$('result').textContent=e.message;});$('retry').onclick=()=>send('autoRetry').then(()=>send('state')).then(r=>{$('result').textContent=r.autoSign?.message||'请查看提醒结果';}).catch(e=>{$('result').textContent=e.message;});$('ack').onclick=()=>send('ack',{id:'qr:'+tabId}).catch(e=>{$('result').textContent=e.message;});
@@ -53,4 +72,4 @@ canvas.onpointerdown=e=>{if(!work.width)return;drag=point(e);canvas.setPointerCa
 $('clearROI').onclick=()=>{roi=null;autoROI=null;preview();if(staticFrame)analyze(false);};
 $('loginCheck').onclick=()=>checkLogin();$('loginOpen').onclick=()=>send('openSchoolLogin').catch(e=>{$('loginStatus').textContent=e.message;});
 async function checkLogin(){try{const r=await send('sessionCheck');$('loginStatus').textContent=r.ready?'已检测到学校凭据（是否有效以接口为准）':'尚无学校签到凭据；建议先打开学校页完成登录';}catch(e){$('loginStatus').textContent='检查失败：'+e.message;}}
-(async()=>{try{tabId=(await chrome.tabs.getCurrent()).id;const data=await send('state');$('autoSign').checked=data.settings.autoSign;await checkLogin();await ScanEngine.ready();$('status').textContent='ZBar 引擎就绪，请选择课堂画面或导入截图检查';$('start').disabled=false;$('file').disabled=false;diagnostics(['本地 ZBar WASM 引擎已加载','使用系统共享选择器获取真实画面，不依赖活动标签页截图权限。']);}catch(e){$('status').textContent='初始化失败：'+e.message;}})();
+(async()=>{try{tabId=(await chrome.tabs.getCurrent()).id;const data=await send('state');$('autoSign').checked=data.settings.autoSign;await checkLogin();await refreshCaptions();await ScanEngine.ready();$('status').textContent='ZBar 引擎就绪，请选择课堂画面或导入截图检查';$('start').disabled=false;$('file').disabled=false;diagnostics(['本地 ZBar WASM 引擎已加载','使用系统共享选择器获取真实画面，不依赖活动标签页截图权限。']);}catch(e){$('status').textContent='初始化失败：'+e.message;}})();

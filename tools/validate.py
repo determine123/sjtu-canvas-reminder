@@ -14,7 +14,7 @@ def validate():
         names += entry['js']
     for page in ('popup.html', 'monitor.html', 'offscreen.html'):
         names += re.findall(r'(?:src|href)="([^"#:]+)"', (ROOT / page).read_text(encoding='utf-8'))
-    names += ['vendor/zbar.wasm', 'vendor/zbar.LICENSE', 'vendor/jsQR.LICENSE',
+    names += ['hint-policy.js', 'hint-background.js', 'voice-hints.js', 'captions-content.js', 'vendor/zbar.wasm', 'vendor/zbar.LICENSE', 'vendor/jsQR.LICENSE',
               'vendor/zbar-wasm-source.tar.gz', 'vendor/zbar-0.23.90.tar.gz']
     for name in names:
         target = (ROOT / name).resolve()

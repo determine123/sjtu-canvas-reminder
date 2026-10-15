@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SJTU Canvas 签到提醒",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "课堂二维码提醒与可选自动签到、课程监控和课前提醒。",
   "minimum_chrome_version": "120",
   "permissions": [
@@ -37,7 +37,9 @@
       "match_about_blank": true,
       "js": [
         "core.js",
-        "table-content.js"
+        "table-content.js",
+        "hint-policy.js",
+        "captions-content.js"
       ],
       "run_at": "document_idle"
     }

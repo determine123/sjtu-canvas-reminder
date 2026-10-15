@@ -17,7 +17,7 @@ try {
     $remote = (& git remote get-url origin).Trim()
     if ($LASTEXITCODE -ne 0 -or $remote -notin @('https://github.com/determine123/sjtu-canvas-reminder.git','https://github.com/determine123/sjtu-canvas-reminder','git@github.com:determine123/sjtu-canvas-reminder.git')) { throw 'Unexpected Git origin; inspect it before publishing.' }
     if ((& git branch --show-current).Trim() -ne 'main') { throw 'Switch to the reviewed main branch before publishing.' }
-    & $nodeCommand --test tests/core.test.cjs tests/worker.test.cjs tests/auto-sign.test.cjs
+    & $nodeCommand --test tests/core.test.cjs tests/worker.test.cjs tests/auto-sign.test.cjs tests/hints.test.cjs
     if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed.' }
     & $pythonCommand tools/validate.py
     if ($LASTEXITCODE -ne 0) { throw 'Extension resource validation failed.' }

@@ -1,4 +1,4 @@
-importScripts('core.js','auto-sign.js');
+importScripts('core.js','auto-sign.js','hint-policy.js','hint-background.js');
 const signControllers=new Map();
 const cancelledSignTabs=new Set();let autoSigningPaused=false;
 let queue=Promise.resolve(),audioCreation;
@@ -138,12 +138,16 @@ async function getState(tabId){
 async function dispatch(m,sender){
   switch(m.type){
     case 'openMonitor':await chrome.windows.create({url:chrome.runtime.getURL('monitor.html'),type:'normal',width:1280,height:900});break;
+    case 'captionTabs':return await captionTabs();
+    case 'captionBind':return await bindCaptions(m.tabId,m.sourceId);
+    case 'captionUnbind':await unbindCaptions(m.tabId);break;
+    case 'attendanceHint':return await attendanceHint(m);
     case 'sessionCheck':return await AutoSign.sessionStatus();
     case 'openSchoolLogin':await chrome.tabs.create({url:'https://mlearning.sjtu.edu.cn/lms/mobile/'});break;
     case 'monitorStart':case 'monitorStop':case 'monitorFound':{
       const tab=await chrome.tabs.get(m.tabId);if(tab.url!==chrome.runtime.getURL('monitor.html'))throw Error('扫描器页面无效');
       if(m.type==='monitorStart'){cancelledSignTabs.delete(m.tabId);await session.set({['qrEnabled:'+m.tabId]:true});}
-      else if(m.type==='monitorStop'){await session.remove('qrEnabled:'+m.tabId);await ack('qr:'+m.tabId);}
+      else if(m.type==='monitorStop'){await unbindCaptions(m.tabId);await session.remove('qrEnabled:'+m.tabId);await ack('qr:'+m.tabId);await ack('hint:'+m.tabId);}
       else return await foundQR(m,{...sender,tab,frameId:0});break;
     }
     case 'state':return await getState(m.tabId);
@@ -171,7 +175,7 @@ async function dispatch(m,sender){
     default:throw Error('不支持的操作');
   }return {};
 }
-const pageTypes=['tableStatus','tableReport','qrCapture','qrFound','qrAck'];
+const pageTypes=['tableStatus','tableReport','qrCapture','qrFound','qrAck','captionReport','captionIsEnabled'];
 chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(!m||sender.id!==chrome.runtime.id||m.type==='audio')return;
   const ui=[chrome.runtime.getURL('popup.html'),chrome.runtime.getURL('monitor.html')].includes(sender.url);if(!ui&&!pageTypes.includes(m.type))return;
@@ -179,6 +183,8 @@ chrome.runtime.onMessage.addListener((m,sender,reply)=>{
   if(ui&&['qrStop','monitorStop'].includes(m.type)){cancelledSignTabs.add(m.tabId);signControllers.get(m.tabId)?.abort();}
   if(ui&&m.type==='saveSettings'&&m.settings?.autoSign===false){autoSigningPaused=true;for(const controller of signControllers.values())controller.abort();}
   const send=p=>p.then(data=>reply({ok:true,...data})).catch(e=>reply({ok:false,error:e.message||'操作失败'}));
+  if(m.type==='captionReport'){send(deliverCaption(m,sender));return true;}
+  if(m.type==='captionIsEnabled'){send(session.get('captionBindings').then(d=>({enabled:Boolean(d.captionBindings?.[sender.tab?.id]?.length)})));return true;}
   if(m.type==='tableStatus'){send(config().then(c=>({enabled:c.settings.coursesEnabled})));return true;}
   if(m.type==='qrCapture'){send(capture(sender));return true;}
   if(m.type==='state'){send(getState(m.tabId));return true;}
@@ -189,7 +195,7 @@ chrome.alarms.onAlarm.addListener(a=>enqueue(()=>a.name==='poll'?poll():a.name==
 chrome.notifications.onButtonClicked.addListener((id,index)=>enqueue(async()=>{if(index===0)try{await openTarget(id);}catch(e){await log('error',e.message);}else await ack(id);}));
 chrome.notifications.onClicked.addListener(id=>enqueue(async()=>{try{await openTarget(id);}catch(e){await log('error',e.message);}}));
 chrome.notifications.onClosed.addListener((id,byUser)=>{if(byUser)enqueue(()=>ack(id));});
-chrome.tabs.onRemoved.addListener(id=>{signControllers.get(id)?.abort();enqueue(async()=>{await session.remove(['qrEnabled:'+id,'qr:'+id,'signResult:'+id]);await ack('qr:'+id);});});
+chrome.tabs.onRemoved.addListener(id=>{signControllers.get(id)?.abort();enqueue(async()=>{await unbindCaptions(id);await session.remove(['qrEnabled:'+id,'qr:'+id,'signResult:'+id]);await ack('qr:'+id);});});
 chrome.runtime.onInstalled.addListener(()=>enqueue(plan));
 chrome.runtime.onStartup.addListener(()=>enqueue(async()=>{await badge();await plan();await poll();}));
 async function configureAutomaticSigning(){

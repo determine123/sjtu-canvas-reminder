@@ -17,7 +17,7 @@ jobs:
           node-version: '24'
           package-manager-cache: false
       - name: Regression tests
-        run: node --test tests/core.test.cjs tests/worker.test.cjs tests/auto-sign.test.cjs
+        run: node --test tests/core.test.cjs tests/worker.test.cjs tests/auto-sign.test.cjs tests/hints.test.cjs
       - name: Validate extension resources
         run: python3 tools/validate.py
       - name: Build unpacked extension
