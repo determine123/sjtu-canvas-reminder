@@ -137,7 +137,9 @@ async function getState(tabId){
 }
 async function dispatch(m,sender){
   switch(m.type){
-    case 'openMonitor':await chrome.tabs.create({url:chrome.runtime.getURL('monitor.html')});break;
+    case 'openMonitor':await chrome.windows.create({url:chrome.runtime.getURL('monitor.html'),type:'normal',width:1280,height:900});break;
+    case 'sessionCheck':return await AutoSign.sessionStatus();
+    case 'openSchoolLogin':await chrome.tabs.create({url:'https://mlearning.sjtu.edu.cn/lms/mobile/'});break;
     case 'monitorStart':case 'monitorStop':case 'monitorFound':{
       const tab=await chrome.tabs.get(m.tabId);if(tab.url!==chrome.runtime.getURL('monitor.html'))throw Error('扫描器页面无效');
       if(m.type==='monitorStart'){cancelledSignTabs.delete(m.tabId);await session.set({['qrEnabled:'+m.tabId]:true});}

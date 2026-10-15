@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SJTU Canvas 签到提醒</title><link rel="stylesheet" href="popup.css"></head>
 <body>
-<header><div class="brand"><img src="icons/48.png" width="38" height="38" alt=""><div><span class="eyebrow">SJTU / CANVAS</span><h1>课堂签到提醒</h1></div></div><span class="version">2.2.1</span></header>
+<header><div class="brand"><img src="icons/48.png" width="38" height="38" alt=""><div><span class="eyebrow">SJTU / CANVAS</span><h1>课堂签到提醒</h1></div></div><span class="version">2.3.0</span></header>
 <nav aria-label="功能导航"><button class="tab selected" data-page="monitor" aria-selected="true">监控</button><button class="tab" data-page="courses" aria-selected="false">课程</button><button class="tab" data-page="settings" aria-selected="false">设置</button></nav>
 <main>
 <div id="message" role="status" hidden></div>
@@ -22,5 +22,5 @@
   <div class="divider"></div><div class="section-head"><h2>最近事件</h2><button id="clearLogs" class="text-button">清空</button></div><div id="logs"></div>
   <details class="help"><summary>使用说明与运行限制</summary><p>先在 Edge 登录 Canvas。二维码扫描需课堂标签页在前台，表格监控需课程标签页保持打开。开启表格监控后会定期刷新签到工具页。</p><p>表格监控、课前提醒开关会保存，重启 Edge 后恢复；二维码扫描需手动重新开启。休眠或浏览器关闭期间不能保证提醒。</p><p>自动签到仅在开关开启时尝试，不保存 jAccount 密码。结果不明确时需人工核对。学校登录方式或签到页面改变后可能需要适配。</p><a href="README.md" target="_blank" rel="noopener">完整说明 ↗</a></details>
 </section>
-</main><footer><span id="footerState">本地识别 · 可选自动签到</span><span>v2.2.1</span></footer>
+</main><footer><span id="footerState">本地识别 · 可选自动签到</span><span>v2.3.0</span></footer>
 <script src="popup.js"></script></body></html>

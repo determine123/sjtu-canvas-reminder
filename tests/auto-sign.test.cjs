@@ -25,3 +25,9 @@ test('cancel before submission sends no request and invalid QR never reads cooki
  const old=global.chrome;global.chrome={cookies:{async get(){throw Error('must not read');}}};t.after(()=>{global.chrome=old;});let calls=0;
  t.mock.method(global,'fetch',async()=>{calls++;});assert.equal((await A.submit('https://evil.test')).status,'invalid');const controller=new AbortController();controller.abort();const r=await A.submit(url,{signal:controller.signal});assert.equal(r.status,'cancelled');assert.equal(r.attempted,false);assert.equal(calls,0);
 });
+
+test('login readiness check returns only a boolean and never makes a network request',async t=>{
+ const old=global.chrome;global.chrome={cookies:{async get(){return {value:'test-token'};}}};t.after(()=>{global.chrome=old;});
+ t.mock.method(global,'fetch',async()=>{throw Error('must not fetch');});assert.deepEqual(await A.sessionStatus(),{ready:true});
+ global.chrome.cookies.get=async()=>null;assert.deepEqual(await A.sessionStatus(),{ready:false});
+});

@@ -19,16 +19,30 @@ const {chromium}=require(process.env.SJTU_PLAYWRIGHT_MODULE||'playwright');
   await page.waitForFunction(()=>document.getElementById('dimensions').textContent==='1920 × 1080');
   await page.waitForFunction(()=>document.getElementById('result').textContent.includes('有效签到二维码'));
   assert.equal(await page.locator('#codes').textContent(),'2');
+  const timings=await page.evaluate(async()=>{
+    const t=performance.now();const full=await ScanEngine.decode(work);const fullMs=performance.now()-t;
+    const area=full.codes.find(c=>c.target).region;
+    const t2=performance.now();const tracked=await ScanEngine.decode(work,area);const trackedMs=performance.now()-t2;
+    const fallback=await ScanEngine.decode(work,{x:0,y:0,w:.1,h:.1});
+    return {fullMs,trackedMs,fullPasses:full.passes,trackedPasses:tracked.passes,found:tracked.codes.some(c=>c.target),fallback:fallback.passes};
+  });
+  assert.equal(timings.found,true);assert.equal(timings.trackedPasses.includes('原始画面'),false);assert.ok(timings.fallback.includes('原始画面'));
+  console.log('Measured decode (synthetic 1080p): full='+Math.round(timings.fullMs)+'ms, tracked='+Math.round(timings.trackedMs)+'ms; ROI misses fall back to full frame.');
   const region=await page.locator('#canvas').boundingBox();
   await page.mouse.move(region.x+region.width*.73,region.y+region.height*.6);await page.mouse.down();
   await page.mouse.move(region.x+region.width*.96,region.y+region.height*.87);await page.mouse.up();
-  await page.waitForFunction(()=>document.getElementById('diagnostics').textContent.includes('框选放大'));
+  await page.waitForFunction(()=>document.getElementById('diagnostics').textContent.includes('框选'));
   await page.screenshot({path:path.join(__dirname,'lecture-diagnostics-preview.png'),fullPage:true});
   // Real browser MediaStream from a canvas with a QR test frame, simulating the shared source.
   const fixture='data:image/png;base64,'+fs.readFileSync(path.join(__dirname,'qr-fixture.png')).toString('base64');
   await page.evaluate(async data=>{const img=new Image();img.src=data;await img.decode();const c=document.createElement('canvas');c.width=img.width;c.height=img.height;c.getContext('2d').drawImage(img,0,0);window.testSourceCanvas=c;navigator.mediaDevices.getDisplayMedia=async()=>{const stream=c.captureStream(2);setInterval(()=>c.getContext('2d').drawImage(img,0,0),200);return stream;};},fixture);
-  await page.locator('#start').click();try{await page.waitForFunction(()=>document.getElementById('result').textContent.includes('已识别签到码并发出提醒'),null,{timeout:15000});}catch(e){console.log('DEBUG',await page.locator('body').innerText(),await worker.evaluate(async()=>({session:await chrome.storage.session.get(null),logs:await chrome.storage.local.get('logs')})));throw e;}
-  assert.equal(await page.locator('#open').isDisabled(),false);
+  await worker.evaluate(()=>{const original=foundQR;globalThis.testFoundCalls=0;foundQR=async(...args)=>{globalThis.testFoundCalls++;await new Promise(resolve=>setTimeout(resolve,2500));return original(...args);};});
+  const initialFrames=Number(await page.locator('#frames').textContent());
+  await page.locator('#start').click();
+  await page.waitForFunction(initial=>Number(document.getElementById('frames').textContent)>=initial+2,initialFrames,{timeout:2000});
+  assert.equal(await page.locator('#result').textContent(),'测试截图中识别到有效签到二维码（仅测试，未提交）','decoder must continue while the worker reply is pending');
+  try{await page.waitForFunction(()=>document.getElementById('result').textContent.includes('已识别签到码并发出提醒'),null,{timeout:15000});}catch(e){console.log('DEBUG',await page.locator('body').innerText(),await worker.evaluate(async()=>({session:await chrome.storage.session.get(null),logs:await chrome.storage.local.get('logs')})));throw e;}
+  assert.equal(await page.locator('#open').isDisabled(),false);assert.equal(await worker.evaluate(()=>testFoundCalls),1,'in-flight reports must deduplicate');
   const tabId=await page.evaluate(async()=>(await chrome.tabs.getCurrent()).id);
   assert.ok(await worker.evaluate(async id=>(await chrome.storage.session.get('pending')).pending['qr:'+id],tabId));
   await page.locator('#stop').click();await page.waitForFunction(()=>document.getElementById('status').textContent==='扫描已停止');
