@@ -1,0 +1,30 @@
+name: Extension regression tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Regression tests
+        run: node --test tests/core.test.cjs tests/worker.test.cjs tests/auto-sign.test.cjs
+      - name: Validate extension resources
+        run: python3 tools/validate.py
+      - name: Build unpacked extension
+        run: python3 package.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sjtu-canvas-reminder
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30

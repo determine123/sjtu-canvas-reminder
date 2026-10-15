@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "SJTU Canvas 签到提醒",
+  "version": "2.2.1",
+  "description": "课堂二维码提醒与可选自动签到、课程监控和课前提醒。",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "offscreen",
+    "activeTab",
+    "scripting",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://*.sjtu.edu.cn/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icons/128.png"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.sjtu.edu.cn/*"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "js": [
+        "core.js",
+        "table-content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

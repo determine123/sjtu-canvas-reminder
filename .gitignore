@@ -1,0 +1,17 @@
+.publish-local.json
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+node_modules/
+.venv/
+__pycache__/
+dist/
+test-results/
+playwright-report/
+tests/*-preview.png
+*.crx
+Thumbs.db
+.DS_Store

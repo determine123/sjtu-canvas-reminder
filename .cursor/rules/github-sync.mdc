@@ -1,0 +1,10 @@
+---
+description: Complete validated project updates by synchronizing the authorized GitHub repository
+alwaysApply: true
+---
+
+Follow AGENTS.md. The owner authorized future completed project changes to be
+committed and pushed to determine123/sjtu-canvas-reminder after validation.
+Inspect new files before staging. Never publish credentials or force-push.
+Overwrite configured local installations rather than generating local ZIPs.
+Use tools/publish.ps1; do not claim that arbitrary manual edits auto-upload.
