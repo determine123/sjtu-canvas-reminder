@@ -43,13 +43,15 @@
     return out;
   }
   function nextLesson(row,now=Date.now(),sent={}){
-    const r=lesson(row),candidates=[];
-    for(const c of r.changes){if(c.kind!=='move')continue;const classAt=Date.parse(c.toDate+'T'+c.time+':00+08:00'),key=JSON.stringify([r.id||r.name,'move',c.date,c.toDate,c.time]);
-      if(classAt>now&&!sent[key])candidates.push({key,classAt,when:Math.max(now+1000,classAt-1800000),date:c.toDate,time:c.time,location:c.location,moved:true,originalDate:c.date});}
+    const r=lesson(row),groups=new Map(),occurrence=(date,time)=>JSON.stringify([r.id||r.name,'class',date,time]);
+    const add=event=>{const events=groups.get(event.key)||[];events.push(event);groups.set(event.key,events);};
+    for(const c of r.changes){if(c.kind!=='move')continue;const classAt=Date.parse(c.toDate+'T'+c.time+':00+08:00'),key=occurrence(c.toDate,c.time),legacyKey=JSON.stringify([r.id||r.name,'move',c.date,c.toDate,c.time]);
+      if(classAt>now)add({key,legacyKey,classAt,when:Math.max(now+1000,classAt-1800000),date:c.toDate,time:c.time,location:c.location,moved:true,originalDate:c.date});}
     const start=Math.max(Date.parse(dateOf(now)+'T00:00:00+08:00'),Date.parse(r.from+'T00:00:00+08:00')),end=Date.parse(r.to+'T00:00:00+08:00'),changes=new Map(r.changes.map(c=>[c.date,c]));
     for(let t=start;t<=end;t+=86400000){const date=dateOf(t);if(changes.has(date)||!scheduledDate(r,date))continue;
-      const classAt=Date.parse(date+'T'+r.time+':00+08:00'),key=JSON.stringify([r.id||r.name,date,r.time]);if(classAt<=now||sent[key])continue;
-      candidates.push({key,classAt,when:Math.max(now+1000,classAt-1800000),date,time:r.time,location:r.location,moved:false});}
+      const classAt=Date.parse(date+'T'+r.time+':00+08:00');if(classAt<=now)continue;
+      add({key:occurrence(date,r.time),legacyKey:JSON.stringify([r.id||r.name,date,r.time]),classAt,when:Math.max(now+1000,classAt-1800000),date,time:r.time,location:r.location,moved:false});}
+    const candidates=[...groups.values()].filter(events=>!sent[events[0].key]&&events.every(event=>!sent[event.legacyKey])).map(events=>events.find(event=>event.moved)||events[0]);
     candidates.sort((a,b)=>a.classAt-b.classAt);return candidates[0]||null;
   }
   function table(doc){

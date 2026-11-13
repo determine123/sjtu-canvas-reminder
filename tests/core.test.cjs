@@ -39,6 +39,13 @@ test('single-class cancellation and rescheduling replace only the matching occur
  assert.equal(C.nextLesson(changed,Date.parse('2026-10-24T20:00:00+08:00')).date,'2026-10-25');
  assert.equal(C.nextLesson(changed,now,{[moved.key]:now}).date,'2026-10-30');
 });
+test('rescheduling onto another class slot reminds once and migrates legacy sent keys',()=>{
+ const changed={...row,days:[1,3],time:'10:00',changes:[{date:'2026-10-19',kind:'move',toDate:'2026-10-21',time:'10:00'}]};
+ const now=Date.parse('2026-10-18T12:00:00+08:00'),moved=C.nextLesson(changed,now);
+ assert.equal(moved.date,'2026-10-21');assert.equal(moved.moved,true);
+ assert.equal(C.nextLesson(changed,now,{[moved.key]:now}).date,'2026-10-26');
+ assert.equal(C.nextLesson(changed,now,{[moved.legacyKey]:now}).date,'2026-10-26');
+});
 test('schedule adjustments require scheduled original dates, unique records and valid replacements',()=>{
  const changes=[{date:'2026-10-23',kind:'skip'}];
  assert.throws(()=>C.lesson({...row,changes:[{date:'2026-10-22',kind:'skip'}]}),/已安排/);
