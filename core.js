@@ -1,5 +1,5 @@
 (function(root){
-  const defaults={autoSign:true,coursesEnabled:false,lessonsEnabled:false,autoOpen:false,sound:true,interval:60};
+  const defaults={autoSign:true,coursesEnabled:false,lessonsEnabled:false,lessonPauseUntil:0,autoOpen:false,sound:true,interval:60};
   function qr(value){
     try{if(typeof value!=='string'||value.length>8192)return null;const u=new URL(value);
       if(u.protocol!=='https:'||u.hostname!=='mlearning.sjtu.edu.cn'||u.port||u.username||u.password||u.hash||u.pathname!=='/lms/mobile2/forscan/')return null;

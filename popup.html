@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SJTU Canvas 签到提醒</title><link rel="stylesheet" href="popup.css"></head>
 <body>
-<header><div class="brand"><img src="icons/48.png" width="38" height="38" alt=""><div><span class="eyebrow">SJTU / CANVAS</span><h1>课堂签到提醒</h1></div></div><span class="version">2.4.0</span></header>
+<header><div class="brand"><img src="icons/48.png" width="38" height="38" alt=""><div><span class="eyebrow">SJTU / CANVAS</span><h1>课堂签到提醒</h1></div></div><span class="version">2.6.0</span></header>
 <nav aria-label="功能导航"><button class="tab selected" data-page="monitor" aria-selected="true">监控</button><button class="tab" data-page="courses" aria-selected="false">课程</button><button class="tab" data-page="settings" aria-selected="false">设置</button></nav>
 <main>
 <div id="message" role="status" hidden></div>
@@ -13,7 +13,7 @@
 <section id="courses" class="page" hidden>
   <div class="section-head"><h2>签到表格监控</h2><label class="toggle"><input id="coursesEnabled" type="checkbox"><span>启用</span></label></div><p class="intro">监测课程签到工具中的新签到记录，使用 Edge 已有登录会话。</p><div id="courseList"></div>
   <details id="addCourseDetails"><summary>＋ 添加监控课程</summary><form id="courseForm"><label>课程名称<input name="name" maxlength="60" placeholder="例如：高等数学"></label><label>课程编号或签到工具地址<input name="url" required placeholder="12345 或完整 Canvas 地址"></label><button class="primary" type="submit">添加课程</button></form></details>
-  <div class="divider"></div><div class="section-head"><h2>课前提醒</h2><label class="toggle"><input id="lessonsEnabled" type="checkbox"><span>启用</span></label></div><p class="intro">按北京时间，提前 30 分钟提醒。</p><div id="lessonList"></div>
+  <div class="divider"></div><div class="section-head"><h2>课前提醒</h2><label class="toggle"><input id="lessonsEnabled" type="checkbox"><span>启用</span></label></div><p class="intro">按北京时间，提前 30 分钟提醒。</p><div id="lessonPausePanel" class="pause-panel"><div><strong>临时暂停全部课前提醒</strong><p id="lessonPauseStatus" role="status">节假日或离校期间可暂停，签到表格监控不受影响。</p></div><div class="pause-controls"><label>暂停至<input id="lessonPauseDate" type="date"></label><button id="pauseLessons" class="secondary" type="button">暂停至当天结束</button><button id="resumeLessons" class="text-button" type="button" disabled>立即恢复</button></div></div><div id="lessonList"></div>
   <details id="addLessonDetails"><summary>＋ 添加课前提醒</summary><form id="lessonForm"><label>课程名称<input name="name" required maxlength="60"></label><fieldset><legend>上课日</legend><div class="weekdays"><label><input type="checkbox" name="day" value="1">一</label><label><input type="checkbox" name="day" value="2">二</label><label><input type="checkbox" name="day" value="3">三</label><label><input type="checkbox" name="day" value="4">四</label><label><input type="checkbox" name="day" value="5">五</label><label><input type="checkbox" name="day" value="6">六</label><label><input type="checkbox" name="day" value="7">日</label></div></fieldset><div class="grid"><label>上课时间<input name="time" type="time" required></label><label>周次<select name="weeks"><option value="all">每周</option><option value="odd">单周</option><option value="even">双周</option></select></label><label>开始日期<input name="from" type="date" required></label><label>结束日期<input name="to" type="date" required></label></div><label>第一周的周一（单双周必填）<input name="anchor" type="date"></label><label>上课地点<input name="location" maxlength="120" placeholder="教室 / 线上直播"></label><button class="primary" type="submit">添加提醒</button></form></details>
 </section>
 <section id="settings" class="page" hidden>
@@ -22,5 +22,5 @@
   <div class="divider"></div><div class="section-head"><h2>最近事件</h2><button id="clearLogs" class="text-button">清空</button></div><div id="logs"></div>
   <details class="help"><summary>使用说明与运行限制</summary><p>先在 Edge 登录 Canvas。二维码扫描需课堂标签页在前台，表格监控需课程标签页保持打开。开启表格监控后会定期刷新签到工具页。</p><p>表格监控、课前提醒开关会保存，重启 Edge 后恢复；二维码扫描需手动重新开启。休眠或浏览器关闭期间不能保证提醒。</p><p>自动签到仅在开关开启时尝试，不保存 jAccount 密码。结果不明确时需人工核对。学校登录方式或签到页面改变后可能需要适配。</p><a href="README.md" target="_blank" rel="noopener">完整说明 ↗</a></details>
 </section>
-</main><footer><span id="footerState">本地识别 · 可选自动签到</span><span>v2.5.0</span></footer>
+</main><footer><span id="footerState">本地识别 · 可选自动签到</span><span>v2.6.0</span></footer>
 <script src="popup.js"></script></body></html>

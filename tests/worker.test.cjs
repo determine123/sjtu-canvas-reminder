@@ -45,6 +45,22 @@ test('saved switches rebuild alarms on worker restore and disabling removes them
  const w=worker();await vm.runInContext('queue',w.ctx);w.data.local.settings={coursesEnabled:true,lessonsEnabled:true,interval:60,sound:false};w.data.local.lessons=[{id:'1',name:'课',days:[1,2,3,4,5,6,7],time:'23:59',from:'2026-01-01',to:'2027-12-31',weeks:'all'}];await w.ctx.plan();assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.ok(w.alarms.has('lesson:1'));
  w.data.local.settings.coursesEnabled=false;w.data.local.settings.lessonsEnabled=false;await w.ctx.plan();assert.equal(w.alarms.size,0);
 });
+test('lesson pause removes lesson alarms, keeps course polling, and restores after expiry',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);const course={id:'course',url:'https://oc.sjtu.edu.cn/courses/123/external_tools/6650',name:'数学'},today=new Date(Date.now()+8*3600000).toISOString().slice(0,10),end=new Date(Date.now()+8*3600000+35*86400000).toISOString().slice(0,10),pauseUntil=Date.now()+2*86400000;
+ w.data.local.courses=[course];w.data.local.lessons=[{id:'1',name:'测试课',days:[1,2,3,4,5,6,7],time:'23:59',from:today,to:end,weeks:'all'}];
+ await w.ctx.dispatch({type:'saveSettings',settings:{coursesEnabled:true,lessonsEnabled:true,lessonPauseUntil:pauseUntil,interval:60}},{});
+ assert.equal(w.data.local.settings.lessonPauseUntil,pauseUntil);assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.equal(w.alarms.get('lesson:resume').when,pauseUntil);assert.equal([...w.alarms.keys()].filter(name=>name.startsWith('lesson:')&&name!=='lesson:resume').length,0);assert.equal(JSON.stringify(w.data.local.due),'{}');
+ w.data.local.due['lesson:1']={key:'paused-test',classAt:Date.now()+20*60000,when:Date.now()-1,date:today,time:'23:59',row:w.data.local.lessons[0]};await w.ctx.remindLesson('lesson:1');assert.equal(w.notices.length,0);assert.equal(JSON.stringify(w.data.local.due),'{}');
+ await w.ctx.dispatch({type:'saveSettings',settings:{lessonPauseUntil:Date.now()-1}},{});assert.equal(w.data.local.settings.lessonPauseUntil,0);assert.equal(w.alarms.has('lesson:resume'),false);assert.ok(w.alarms.has('lesson:1'));assert.ok(w.data.local.due['lesson:1']);
+});
+test('lesson pause rejects invalid durations and normalizes expired input',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);
+ await assert.rejects(w.ctx.dispatch({type:'saveSettings',settings:{lessonPauseUntil:Date.now()+366*86400000}},{}),/最多设置为一年内/);
+ await assert.rejects(w.ctx.dispatch({type:'saveSettings',settings:{lessonPauseUntil:String(Date.now()+86400000)}},{}),/暂停截止时间不正确/);
+ await assert.rejects(w.ctx.dispatch({type:'saveSettings',settings:{lessonPauseUntil:-1}},{}),/暂停截止时间不正确/);
+ assert.equal(w.data.local.settings.lessonPauseUntil,undefined);
+ await w.ctx.dispatch({type:'saveSettings',settings:{lessonPauseUntil:Date.now()-1}},{});assert.equal(w.data.local.settings.lessonPauseUntil,0);
+});
 test('lesson changes persist, rebuild the alarm, can be removed, and drive adjusted reminders',async()=>{
  const w=worker();await vm.runInContext('queue',w.ctx);const day=86400000,shanghaiDay=new Date(Date.now()+8*3600000).getUTCDay()||7,offset=((5-shanghaiDay+7)%7)||7,date=offset=>new Date(Date.now()+8*3600000+offset*day).toISOString().slice(0,10),original=date(offset),target=date(offset+2);
  w.data.local.settings={lessonsEnabled:true,sound:false};w.data.local.lessons=[{id:'1',name:'测试课',days:[5],time:'10:00',from:original,to:date(offset+35),weeks:'all',location:'原教室'}];await w.ctx.plan();

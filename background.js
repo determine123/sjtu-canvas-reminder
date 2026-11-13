@@ -41,14 +41,19 @@ async function plan(){
   for(const alarm of await chrome.alarms.getAll())if(alarm.name==='poll'||alarm.name==='plan'||alarm.name.startsWith('lesson:'))await chrome.alarms.clear(alarm.name);
   const {settings:s,lessons}=await config();
   if(s.coursesEnabled)await chrome.alarms.create('poll',{periodInMinutes:s.interval/60});
-  const due={};const {sentLessons={}}=await local.get('sentLessons');
+  const due={},now=Date.now();const {sentLessons={}}=await local.get('sentLessons');
   for(const key of Object.keys(sentLessons))if(Date.now()-sentLessons[key]>90*86400000)delete sentLessons[key];
-  if(s.lessonsEnabled){for(const row of lessons){const event=Core.nextLesson(row,Date.now(),sentLessons);if(event){due['lesson:'+row.id]={...event,row};await chrome.alarms.create('lesson:'+row.id,{when:event.when});}}await chrome.alarms.create('plan',{periodInMinutes:60});}
+  if(s.lessonPauseUntil&&s.lessonPauseUntil<=now){s.lessonPauseUntil=0;await local.set({settings:s});}
+  if(s.lessonsEnabled){
+    if(s.lessonPauseUntil>now)await chrome.alarms.create('lesson:resume',{when:s.lessonPauseUntil});
+    else for(const row of lessons){const event=Core.nextLesson(row,now,sentLessons);if(event){due['lesson:'+row.id]={...event,row};await chrome.alarms.create('lesson:'+row.id,{when:event.when});}}
+    await chrome.alarms.create('plan',{periodInMinutes:60});
+  }
   await local.set({due,sentLessons});
 }
 async function remindLesson(name){
   const {settings:s}=await config();const {due={},sentLessons={}}=await local.get(['due','sentLessons']);const event=due[name];
-  if(!s.lessonsEnabled||!event||event.classAt<=Date.now()||sentLessons[event.key]){await plan();return;}
+  if(!s.lessonsEnabled||s.lessonPauseUntil>Date.now()||!event||event.classAt<=Date.now()||sentLessons[event.key]){await plan();return;}
   if(event.when>Date.now()){await chrome.alarms.create(name,{when:event.when});return;}
   sentLessons[event.key]=Date.now();await local.set({sentLessons});
   const minutes=Math.max(1,Math.ceil((event.classAt-Date.now())/60000));
@@ -171,7 +176,7 @@ async function dispatch(m,sender){
     case 'qrFound':return await foundQR(m,sender);
     case 'qrOpen':{const target=(await session.get('qr:'+m.tabId))['qr:'+m.tabId];if(!Core.fresh(target))throw Error('没有近期二维码，请回到课堂重新扫描');await chrome.tabs.create({url:Core.qr(target.url).url});await ack('qr:'+m.tabId);break;}
     case 'tableReport':await tableReport(m,sender);break;
-    case 'saveSettings':{const {settings:s}=await config();const p=m.settings||{};if(p.autoSign===true)autoSigningPaused=false;for(const key of ['autoSign','coursesEnabled','lessonsEnabled','autoOpen','sound'])if(typeof p[key]==='boolean')s[key]=p[key];if(p.interval!==undefined)s.interval=Math.min(600,Math.max(30,Number(p.interval)||60));await local.set({settings:s});if(!s.sound)await sound(false);await plan();if(s.coursesEnabled)await poll();break;}
+    case 'saveSettings':{const {settings:s}=await config();const p=m.settings||{};if(p.autoSign===true)autoSigningPaused=false;for(const key of ['autoSign','coursesEnabled','lessonsEnabled','autoOpen','sound'])if(typeof p[key]==='boolean')s[key]=p[key];if(p.interval!==undefined)s.interval=Math.min(600,Math.max(30,Number(p.interval)||60));if(p.lessonPauseUntil!==undefined){if(typeof p.lessonPauseUntil!=='number'||!Number.isFinite(p.lessonPauseUntil)||p.lessonPauseUntil<0)throw Error('暂停截止时间不正确');const now=Date.now();if(p.lessonPauseUntil>now+365*86400000)throw Error('暂停时间最多设置为一年内');s.lessonPauseUntil=p.lessonPauseUntil>now?p.lessonPauseUntil:0;}await local.set({settings:s});if(!s.sound)await sound(false);await plan();if(s.coursesEnabled)await poll();break;}
     case 'addCourse':{const c=Core.course(m.course),{courses}=await config();if(courses.some(x=>x.id===c.id))throw Error('这门课程已经添加');if(courses.length>=20)throw Error('最多添加 20 门监控课程');await local.set({courses:[...courses,c]});if((await config()).settings.coursesEnabled)await poll();break;}
     case 'removeCourse':{const {courses}=await config(),{courseStates={}}=await local.get('courseStates');delete courseStates[m.id];await local.set({courses:courses.filter(c=>c.id!==m.id),courseStates});await ack('course:'+m.id,'login:'+m.id,'health:'+m.id);break;}
     case 'openCourse':{const c=(await config()).courses.find(c=>c.id===m.id);if(!c)throw Error('课程不存在');await chrome.tabs.create({url:c.url});break;}
