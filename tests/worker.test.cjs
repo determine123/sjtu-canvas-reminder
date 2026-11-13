@@ -28,6 +28,14 @@ test('saved switches rebuild alarms on worker restore and disabling removes them
  const w=worker();await vm.runInContext('queue',w.ctx);w.data.local.settings={coursesEnabled:true,lessonsEnabled:true,interval:60,sound:false};w.data.local.lessons=[{id:'1',name:'课',days:[1,2,3,4,5,6,7],time:'23:59',from:'2026-01-01',to:'2027-12-31',weeks:'all'}];await w.ctx.plan();assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.ok(w.alarms.has('lesson:1'));
  w.data.local.settings.coursesEnabled=false;w.data.local.settings.lessonsEnabled=false;await w.ctx.plan();assert.equal(w.alarms.size,0);
 });
+test('course login expiry alerts once and rearms after successful re-login',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);const c={id:'course',url:'https://oc.sjtu.edu.cn/courses/123/external_tools/6650',name:'数学'};w.data.local.courses=[c];w.data.local.settings.coursesEnabled=true;w.data.local.courseStates={[c.id]:{tabId:7}};
+ w.chrome.tabs.query=async()=>[{id:7,url:'https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=test',status:'complete'}];
+ await w.ctx.poll();assert.equal(w.notices.length,1);assert.match(w.notices[0].message,/重新登录后会自动恢复/);assert.equal(w.data.local.courseStates[c.id].loginAlerted,true);
+ await w.ctx.poll();assert.equal(w.notices.length,1);
+ w.chrome.tabs.query=async()=>[{id:7,url:c.url,status:'complete'}];await w.ctx.poll();assert.equal(w.data.local.courseStates[c.id].loginAlerted,false);
+ w.chrome.tabs.query=async()=>[{id:7,url:'https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=test',status:'complete'}];await w.ctx.poll();assert.equal(w.notices.length,2);
+});
 
 
 test('automatic signing is opt-in and durably deduplicates the same attendance',async()=>{

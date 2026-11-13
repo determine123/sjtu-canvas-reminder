@@ -16,6 +16,10 @@ async function notify(id,title,message,target){
   if((await config()).settings.sound)try{await sound(true);}catch{await log('error','提示音未能播放，请使用测试提醒检查');}
   await log(target.kind,message);
 }
+async function requireLogin(course,state){
+  state.status='需要登录';if(state.loginAlerted)return;state.loginAlerted=true;
+  await notify('login:'+course.id,'学校登录已过期 · '+course.name,'课程监控已暂停；点击打开课程页，重新登录后会自动恢复。',{kind:'login',url:course.url});
+}
 async function ack(id){
   const {pending={}}=await session.get('pending');const ids=id?[id]:Object.keys(pending);
   for(const key of ids){delete pending[key];await chrome.notifications.clear(key);}
@@ -52,11 +56,11 @@ async function poll(){
   for(const c of courses){const state=courseStates[c.id]||{};state.since ||= Date.now();try{
     let tab=tabs.find(t=>(t.url||'').split('?')[0].replace(/\/$/,'')===c.url)||tabs.find(t=>t.id===state.tabId&&/jaccount|\/login/i.test(t.url||''));
     if(!tab){if(s.autoOpen){tab=await chrome.tabs.create({url:c.url,active:false});state.status='等待页面加载';state.opened=Date.now();state.tabId=tab.id;}else{state.status='等待打开课程页';delete state.tabId;}}
-    else{state.tabId=tab.id;if(/jaccount|\/login/i.test(tab.url||''))state.status='需要登录';else if(tab.discarded||tab.frozen)state.status='页面休眠，请打开课程页';else if(tab.status==='complete'){
+    else{state.tabId=tab.id;if(/jaccount|\/login/i.test(tab.url||''))await requireLogin(c,state);else{state.loginAlerted=false;if(tab.discarded||tab.frozen)state.status='页面休眠，请打开课程页';else if(tab.status==='complete'){
       try{await chrome.tabs.sendMessage(tab.id,{type:'inspectTable'});}catch{state.status='页面脚本未就绪，请刷新课程页';}
       if(Date.now()-(state.opened||0)>s.interval*1000){await chrome.tabs.reload(tab.id);state.opened=Date.now();}
       if(Date.now()-(state.lastRead||state.since)>120000)state.status='未识别签到表格，请检查课程页';
-    }}
+    }}}
   }catch{state.status='检查失败，将在下次重试';}courseStates[c.id]=state;}
   await local.set({courseStates});
 }
@@ -65,7 +69,7 @@ async function tableReport(m,sender){
   const {courseStates={}}=await local.get('courseStates');
   const c=courses.find(c=>(sender.tab.url||'').split('?')[0].replace(/\/$/,'')===c.url)||courses.find(c=>courseStates[c.id]?.tabId===sender.tab.id);
   if(!c)return;const st=courseStates[c.id]||{};st.tabId=sender.tab.id;st.checked=Date.now();
-  if(m.login&&m.top)st.status='需要登录';
+  if(m.login&&m.top)await requireLogin(c,st);else st.loginAlerted=false;
   const r=m.record;let alert=false;
   if(r&&typeof r.num==='string'&&/^\d{1,12}$/.test(r.num)&&typeof r.status==='string'&&typeof r.created==='string'&&r.created.length<100&&r.status.length<100){
     const record={num:r.num,status:r.status,created:r.created,key:r.num+'|'+r.created,active:/未签到|待签到|进行中|签到中/.test(r.status)&&!/已结束|已过期|已关闭/.test(r.status)};
