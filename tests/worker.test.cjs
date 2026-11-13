@@ -1,10 +1,10 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const vm=require('node:vm');const fs=require('node:fs');const path=require('node:path');
 const event=()=>({addListener(){}});
 function worker({configured=true}={}){
- const data={local:{autoSignConfigured221:configured,settings:{sound:false,autoSign:false},courses:[],lessons:[]},session:{}};const notices=[],alarms=new Map();let captures=0;
+ const data={local:{autoSignConfigured221:configured,settings:{sound:false,autoSign:false},courses:[],lessons:[]},session:{}};const notices=[],cleared=[],alarms=new Map();let captures=0;
  const area=key=>({async get(keys){if(typeof keys==='string')return {[keys]:data[key][keys]};if(Array.isArray(keys))return Object.fromEntries(keys.map(k=>[k,data[key][k]]));return {...keys,...data[key]};},async set(v){Object.assign(data[key],v)},async remove(keys){for(const k of [keys].flat())delete data[key][k];}});
- const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:event(),onInstalled:event(),onStartup:event()},storage:{local:area('local'),session:area('session')},action:{async setBadgeText(){},async setBadgeBackgroundColor(){}},offscreen:{async hasDocument(){return false}},alarms:{async getAll(){return [...alarms.entries()].map(([name,o])=>({name,...o}))},async clear(n){alarms.delete(n)},async create(n,o){alarms.set(n,o)},onAlarm:event()},notifications:{async create(id,o){notices.push({id,...o})},async clear(){},onButtonClicked:event(),onClicked:event(),onClosed:event()},tabs:{onRemoved:event(),async get(id){return {id,active:true,windowId:1}},async query(){return [{id:7}]},async captureVisibleTab(){captures++;return 'image'},async sendMessage(){},async reload(){},async create(){}},windows:{async get(){return {focused:true}}}};
- const ctx=vm.createContext({chrome,URL,Date,console,AbortController,TextEncoder,crypto:require('node:crypto').webcrypto,Promise});ctx.importScripts=(...names)=>names.forEach(n=>vm.runInContext(fs.readFileSync(path.join(__dirname,'..',n),'utf8'),ctx));ctx.importScripts('background.js');return {ctx,data,chrome,notices,alarms,captures:()=>captures};
+ const chrome={runtime:{id:'test',getURL:p=>'chrome-extension://test/'+p,onMessage:event(),onInstalled:event(),onStartup:event()},storage:{local:area('local'),session:area('session')},action:{async setBadgeText(){},async setBadgeBackgroundColor(){}},offscreen:{async hasDocument(){return false}},alarms:{async getAll(){return [...alarms.entries()].map(([name,o])=>({name,...o}))},async clear(n){alarms.delete(n)},async create(n,o){alarms.set(n,o)},onAlarm:event()},notifications:{async create(id,o){notices.push({id,...o})},async clear(id){cleared.push(id)},onButtonClicked:event(),onClicked:event(),onClosed:event()},tabs:{onRemoved:event(),async get(id){return {id,active:true,windowId:1}},async query(){return [{id:7}]},async captureVisibleTab(){captures++;return 'image'},async sendMessage(){},async reload(){},async create(){}},windows:{async get(){return {focused:true}}}};
+ const ctx=vm.createContext({chrome,URL,Date,console,AbortController,TextEncoder,crypto:require('node:crypto').webcrypto,Promise});ctx.importScripts=(...names)=>names.forEach(n=>vm.runInContext(fs.readFileSync(path.join(__dirname,'..',n),'utf8'),ctx));ctx.importScripts('background.js');return {ctx,data,chrome,notices,cleared,alarms,captures:()=>captures};
 }
 const url='https://mlearning.sjtu.edu.cn/lms/mobile2/forscan/?courseCode=c&rollCallToken=t&signHistoryId=h';
 test('QR refresh updates session target, never persistent storage, and alerts only once',async()=>{
@@ -29,8 +29,17 @@ test('course monitoring alerts once when table visibility fails and rearms after
  w.chrome.tabs.query=async()=>[{id:7,url:c.url,status:'complete'}];w.chrome.tabs.sendMessage=async()=>{throw Error('content script unavailable');};
  await w.ctx.poll();assert.equal(w.notices.length,1);assert.match(w.notices[0].title,/课程监控需要检查/);assert.equal(w.data.local.courseStates[c.id].healthAlerted,true);
  await w.ctx.poll();assert.equal(w.notices.length,1);
- await w.ctx.tableReport({tableFound:true,record:null,login:false,top:true},{tab:{id:7,url:c.url}});assert.equal(w.data.local.courseStates[c.id].healthAlerted,false);
+ await w.ctx.tableReport({tableFound:true,record:null,login:false,top:true},{tab:{id:7,url:c.url}});assert.equal(w.data.local.courseStates[c.id].healthAlerted,false);assert.equal(w.data.session.pending['health:'+c.id],undefined);assert.ok(w.cleared.includes('health:'+c.id));
  await w.ctx.poll();assert.equal(w.notices.length,2);
+});
+test('removing a course clears only its pending table, login and health notices',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);const removed={id:'removed',url:'https://oc.sjtu.edu.cn/courses/1/external_tools/6650',name:'已删除'};const kept={id:'kept',url:'https://oc.sjtu.edu.cn/courses/2/external_tools/6650',name:'保留'};
+ w.data.local.courses=[removed,kept];w.data.local.courseStates={[removed.id]:{tabId:8},[kept.id]:{tabId:9}};w.data.local.settings.coursesEnabled=true;
+ w.data.session.pending={['course:'+removed.id]:{kind:'monitor'},['login:'+removed.id]:{kind:'login'},['health:'+removed.id]:{kind:'monitor'},['course:'+kept.id]:{kind:'monitor'},lesson:{kind:'lesson'}};
+ await w.ctx.dispatch({type:'removeCourse',id:removed.id},{});
+ assert.deepEqual(w.data.local.courses,[kept]);assert.equal(w.data.local.courseStates[removed.id],undefined);
+ for(const key of ['course:'+removed.id,'login:'+removed.id,'health:'+removed.id]){assert.equal(w.data.session.pending[key],undefined);assert.ok(w.cleared.includes(key));}
+ assert.ok(w.data.session.pending['course:'+kept.id]);assert.ok(w.data.session.pending.lesson);
 });
 test('saved switches rebuild alarms on worker restore and disabling removes them',async()=>{
  const w=worker();await vm.runInContext('queue',w.ctx);w.data.local.settings={coursesEnabled:true,lessonsEnabled:true,interval:60,sound:false};w.data.local.lessons=[{id:'1',name:'课',days:[1,2,3,4,5,6,7],time:'23:59',from:'2026-01-01',to:'2027-12-31',weeks:'all'}];await w.ctx.plan();assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.ok(w.alarms.has('lesson:1'));
@@ -40,8 +49,8 @@ test('course login expiry alerts once and rearms after successful re-login',asyn
  const w=worker();await vm.runInContext('queue',w.ctx);const c={id:'course',url:'https://oc.sjtu.edu.cn/courses/123/external_tools/6650',name:'数学'};w.data.local.courses=[c];w.data.local.settings.coursesEnabled=true;w.data.local.courseStates={[c.id]:{tabId:7}};
  w.chrome.tabs.query=async()=>[{id:7,url:'https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=test',status:'complete'}];
  await w.ctx.poll();assert.equal(w.notices.length,1);assert.match(w.notices[0].message,/重新登录后会自动恢复/);assert.equal(w.data.local.courseStates[c.id].loginAlerted,true);
- await w.ctx.poll();assert.equal(w.notices.length,1);
- w.chrome.tabs.query=async()=>[{id:7,url:c.url,status:'complete'}];await w.ctx.poll();assert.equal(w.data.local.courseStates[c.id].loginAlerted,false);
+ await w.ctx.poll();assert.equal(w.notices.length,1);await w.ctx.tableReport({login:true,top:false},{tab:{id:7,url:c.url}});assert.ok(w.data.session.pending['login:'+c.id]);
+ w.chrome.tabs.query=async()=>[{id:7,url:c.url,status:'complete'}];await w.ctx.poll();assert.equal(w.data.local.courseStates[c.id].loginAlerted,false);assert.equal(w.data.session.pending['login:'+c.id],undefined);assert.ok(w.cleared.includes('login:'+c.id));
  w.chrome.tabs.query=async()=>[{id:7,url:'https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=test',status:'complete'}];await w.ctx.poll();assert.equal(w.notices.length,2);
 });
 

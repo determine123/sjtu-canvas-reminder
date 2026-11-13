@@ -24,8 +24,8 @@ async function monitorHealth(course,state,status,message){
   state.status=status;if(state.healthAlerted)return;state.healthAlerted=true;
   await notify('health:'+course.id,'课程监控需要检查 · '+course.name,message,{kind:'monitor',url:course.url});
 }
-async function ack(id){
-  const {pending={}}=await session.get('pending');const ids=id?[id]:Object.keys(pending);
+async function ack(...requested){
+  const {pending={}}=await session.get('pending');const ids=requested.length?requested.flat():Object.keys(pending);
   for(const key of ids){delete pending[key];await chrome.notifications.clear(key);}
   await session.set({pending});await badge();let stopped=true;
   if(!Object.keys(pending).length)try{await sound(false);}catch{stopped=false;await log('error','停止音频失败，请重新加载插件');}
@@ -60,7 +60,7 @@ async function poll(){
   for(const c of courses){const state=courseStates[c.id]||{};state.since ||= Date.now();try{
     let tab=tabs.find(t=>(t.url||'').split('?')[0].replace(/\/$/,'')===c.url)||tabs.find(t=>t.id===state.tabId&&/jaccount|\/login/i.test(t.url||''));
     if(!tab){if(s.autoOpen){tab=await chrome.tabs.create({url:c.url,active:false});state.status='等待页面加载';state.opened=Date.now();state.tabId=tab.id;}else{state.status='等待打开课程页';delete state.tabId;}}
-    else{state.tabId=tab.id;if(/jaccount|\/login/i.test(tab.url||''))await requireLogin(c,state);else{state.loginAlerted=false;if(tab.discarded||tab.frozen)state.status='页面休眠，请打开课程页';else if(tab.status==='complete'){
+    else{state.tabId=tab.id;if(/jaccount|\/login/i.test(tab.url||''))await requireLogin(c,state);else{if(state.loginAlerted)await ack('login:'+c.id);state.loginAlerted=false;if(tab.discarded||tab.frozen)state.status='页面休眠，请打开课程页';else if(tab.status==='complete'){
       try{await chrome.tabs.sendMessage(tab.id,{type:'inspectTable'});}catch{await monitorHealth(c,state,'页面脚本未就绪，请刷新课程页','课程页脚本未响应，当前无法读取签到表格；请刷新或重新打开课程页，恢复后会自动继续监控。');}
       if(Date.now()-(state.opened||0)>s.interval*1000){await chrome.tabs.reload(tab.id);state.opened=Date.now();}
       if(Date.now()-(state.lastTable||state.lastRead||state.since)>120000)await monitorHealth(c,state,'未识别签到表格，请检查课程页','连续两分钟未识别到签到表格；请检查课程页是否正常加载、字段是否变化。');
@@ -73,7 +73,7 @@ async function tableReport(m,sender){
   const {courseStates={}}=await local.get('courseStates');
   const c=courses.find(c=>(sender.tab.url||'').split('?')[0].replace(/\/$/,'')===c.url)||courses.find(c=>courseStates[c.id]?.tabId===sender.tab.id);
   if(!c)return;const st=courseStates[c.id]||{};st.tabId=sender.tab.id;st.checked=Date.now();
-  if(m.login&&m.top)await requireLogin(c,st);else{st.loginAlerted=false;if(m.tableFound===true){st.healthAlerted=false;st.lastTable=Date.now();}}
+  if(m.login){if(m.top)await requireLogin(c,st);}else{if(st.loginAlerted)await ack('login:'+c.id);st.loginAlerted=false;if(m.tableFound===true){if(st.healthAlerted)await ack('health:'+c.id);st.healthAlerted=false;st.lastTable=Date.now();}}
   const r=m.record;let alert=false;
   if(r&&typeof r.num==='string'&&/^\d{1,12}$/.test(r.num)&&typeof r.status==='string'&&typeof r.created==='string'&&r.created.length<100&&r.status.length<100){
     const record={num:r.num,status:r.status,created:r.created,key:r.num+'|'+r.created,active:/未签到|待签到|进行中|签到中/.test(r.status)&&!/已结束|已过期|已关闭/.test(r.status)};
@@ -172,7 +172,7 @@ async function dispatch(m,sender){
     case 'tableReport':await tableReport(m,sender);break;
     case 'saveSettings':{const {settings:s}=await config();const p=m.settings||{};if(p.autoSign===true)autoSigningPaused=false;for(const key of ['autoSign','coursesEnabled','lessonsEnabled','autoOpen','sound'])if(typeof p[key]==='boolean')s[key]=p[key];if(p.interval!==undefined)s.interval=Math.min(600,Math.max(30,Number(p.interval)||60));await local.set({settings:s});if(!s.sound)await sound(false);await plan();if(s.coursesEnabled)await poll();break;}
     case 'addCourse':{const c=Core.course(m.course),{courses}=await config();if(courses.some(x=>x.id===c.id))throw Error('这门课程已经添加');if(courses.length>=20)throw Error('最多添加 20 门监控课程');await local.set({courses:[...courses,c]});if((await config()).settings.coursesEnabled)await poll();break;}
-    case 'removeCourse':{const {courses}=await config(),{courseStates={}}=await local.get('courseStates');delete courseStates[m.id];await local.set({courses:courses.filter(c=>c.id!==m.id),courseStates});await ack('course:'+m.id);break;}
+    case 'removeCourse':{const {courses}=await config(),{courseStates={}}=await local.get('courseStates');delete courseStates[m.id];await local.set({courses:courses.filter(c=>c.id!==m.id),courseStates});await ack('course:'+m.id,'login:'+m.id,'health:'+m.id);break;}
     case 'openCourse':{const c=(await config()).courses.find(c=>c.id===m.id);if(!c)throw Error('课程不存在');await chrome.tabs.create({url:c.url});break;}
     case 'addLesson':{const r=Core.lesson(m.lesson),{lessons}=await config();if(lessons.length>=100)throw Error('最多添加 100 条课前提醒');r.id=crypto.randomUUID();await local.set({lessons:[...lessons,r]});await plan();break;}
     case 'removeLesson':{const {lessons}=await config();await local.set({lessons:lessons.filter(r=>r.id!==m.id)});await plan();await ack('lesson:'+m.id);break;}
