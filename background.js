@@ -20,6 +20,10 @@ async function requireLogin(course,state){
   state.status='需要登录';if(state.loginAlerted)return;state.loginAlerted=true;
   await notify('login:'+course.id,'学校登录已过期 · '+course.name,'课程监控已暂停；点击打开课程页，重新登录后会自动恢复。',{kind:'login',url:course.url});
 }
+async function monitorHealth(course,state,status,message){
+  state.status=status;if(state.healthAlerted)return;state.healthAlerted=true;
+  await notify('health:'+course.id,'课程监控需要检查 · '+course.name,message,{kind:'monitor',url:course.url});
+}
 async function ack(id){
   const {pending={}}=await session.get('pending');const ids=id?[id]:Object.keys(pending);
   for(const key of ids){delete pending[key];await chrome.notifications.clear(key);}
@@ -57,9 +61,9 @@ async function poll(){
     let tab=tabs.find(t=>(t.url||'').split('?')[0].replace(/\/$/,'')===c.url)||tabs.find(t=>t.id===state.tabId&&/jaccount|\/login/i.test(t.url||''));
     if(!tab){if(s.autoOpen){tab=await chrome.tabs.create({url:c.url,active:false});state.status='等待页面加载';state.opened=Date.now();state.tabId=tab.id;}else{state.status='等待打开课程页';delete state.tabId;}}
     else{state.tabId=tab.id;if(/jaccount|\/login/i.test(tab.url||''))await requireLogin(c,state);else{state.loginAlerted=false;if(tab.discarded||tab.frozen)state.status='页面休眠，请打开课程页';else if(tab.status==='complete'){
-      try{await chrome.tabs.sendMessage(tab.id,{type:'inspectTable'});}catch{state.status='页面脚本未就绪，请刷新课程页';}
+      try{await chrome.tabs.sendMessage(tab.id,{type:'inspectTable'});}catch{await monitorHealth(c,state,'页面脚本未就绪，请刷新课程页','课程页脚本未响应，当前无法读取签到表格；请刷新或重新打开课程页，恢复后会自动继续监控。');}
       if(Date.now()-(state.opened||0)>s.interval*1000){await chrome.tabs.reload(tab.id);state.opened=Date.now();}
-      if(Date.now()-(state.lastRead||state.since)>120000)state.status='未识别签到表格，请检查课程页';
+      if(Date.now()-(state.lastTable||state.lastRead||state.since)>120000)await monitorHealth(c,state,'未识别签到表格，请检查课程页','连续两分钟未识别到签到表格；请检查课程页是否正常加载、字段是否变化。');
     }}}
   }catch{state.status='检查失败，将在下次重试';}courseStates[c.id]=state;}
   await local.set({courseStates});
@@ -69,12 +73,13 @@ async function tableReport(m,sender){
   const {courseStates={}}=await local.get('courseStates');
   const c=courses.find(c=>(sender.tab.url||'').split('?')[0].replace(/\/$/,'')===c.url)||courses.find(c=>courseStates[c.id]?.tabId===sender.tab.id);
   if(!c)return;const st=courseStates[c.id]||{};st.tabId=sender.tab.id;st.checked=Date.now();
-  if(m.login&&m.top)await requireLogin(c,st);else st.loginAlerted=false;
+  if(m.login&&m.top)await requireLogin(c,st);else{st.loginAlerted=false;if(m.tableFound===true){st.healthAlerted=false;st.lastTable=Date.now();}}
   const r=m.record;let alert=false;
   if(r&&typeof r.num==='string'&&/^\d{1,12}$/.test(r.num)&&typeof r.status==='string'&&typeof r.created==='string'&&r.created.length<100&&r.status.length<100){
     const record={num:r.num,status:r.status,created:r.created,key:r.num+'|'+r.created,active:/未签到|待签到|进行中|签到中/.test(r.status)&&!/已结束|已过期|已关闭/.test(r.status)};
-    alert=Core.shouldAlert(st.record,record);st.record=record;st.lastRead=Date.now();st.status=record.status?'已连接 · '+record.status:'已连接 · 状态未知';
-  }else if(m.top&&!m.login&&!st.lastRead)st.status='等待签到表格';
+    alert=Core.shouldAlert(st.record,record);st.record=record;st.lastRead=Date.now();st.lastTable=Date.now();st.healthAlerted=false;st.status=record.status?'已连接 · '+record.status:'已连接 · 状态未知';
+  }else if(m.top&&!m.login&&m.tableFound===true)st.status='已连接 · 等待签到记录';
+  else if(m.top&&!m.login&&!st.lastRead)st.status='等待签到表格';
   courseStates[c.id]=st;await local.set({courseStates});
   if(alert)await notify('course:'+c.id,'发现新签到 · '+c.name,`签到号 ${st.record.num} · ${st.record.status}`,{kind:'table',url:c.url});
 }

@@ -24,6 +24,14 @@ test('background trusts status text, not a forged active flag',async()=>{
  await w.ctx.tableReport({record:{num:'2',created:'',status:'未签到'}},sender);assert.equal(w.notices.length,1);
  await w.ctx.tableReport({record:{num:'2',created:'',status:'未签到'}},sender);assert.equal(w.notices.length,1);
 });
+test('course monitoring alerts once when table visibility fails and rearms after recovery',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);const c={id:'course',url:'https://oc.sjtu.edu.cn/courses/123/external_tools/6650',name:'数学'};w.data.local.courses=[c];w.data.local.settings={coursesEnabled:true,interval:60,sound:false};w.data.local.courseStates={[c.id]:{tabId:7,since:Date.now()-121000}};
+ w.chrome.tabs.query=async()=>[{id:7,url:c.url,status:'complete'}];w.chrome.tabs.sendMessage=async()=>{throw Error('content script unavailable');};
+ await w.ctx.poll();assert.equal(w.notices.length,1);assert.match(w.notices[0].title,/课程监控需要检查/);assert.equal(w.data.local.courseStates[c.id].healthAlerted,true);
+ await w.ctx.poll();assert.equal(w.notices.length,1);
+ await w.ctx.tableReport({tableFound:true,record:null,login:false,top:true},{tab:{id:7,url:c.url}});assert.equal(w.data.local.courseStates[c.id].healthAlerted,false);
+ await w.ctx.poll();assert.equal(w.notices.length,2);
+});
 test('saved switches rebuild alarms on worker restore and disabling removes them',async()=>{
  const w=worker();await vm.runInContext('queue',w.ctx);w.data.local.settings={coursesEnabled:true,lessonsEnabled:true,interval:60,sound:false};w.data.local.lessons=[{id:'1',name:'课',days:[1,2,3,4,5,6,7],time:'23:59',from:'2026-01-01',to:'2027-12-31',weeks:'all'}];await w.ctx.plan();assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.ok(w.alarms.has('lesson:1'));
  w.data.local.settings.coursesEnabled=false;w.data.local.settings.lessonsEnabled=false;await w.ctx.plan();assert.equal(w.alarms.size,0);
