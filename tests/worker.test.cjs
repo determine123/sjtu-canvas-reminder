@@ -45,6 +45,15 @@ test('saved switches rebuild alarms on worker restore and disabling removes them
  const w=worker();await vm.runInContext('queue',w.ctx);w.data.local.settings={coursesEnabled:true,lessonsEnabled:true,interval:60,sound:false};w.data.local.lessons=[{id:'1',name:'课',days:[1,2,3,4,5,6,7],time:'23:59',from:'2026-01-01',to:'2027-12-31',weeks:'all'}];await w.ctx.plan();assert.ok(w.alarms.has('poll'));assert.ok(w.alarms.has('plan'));assert.ok(w.alarms.has('lesson:1'));
  w.data.local.settings.coursesEnabled=false;w.data.local.settings.lessonsEnabled=false;await w.ctx.plan();assert.equal(w.alarms.size,0);
 });
+test('lesson changes persist, rebuild the alarm, can be removed, and drive adjusted reminders',async()=>{
+ const w=worker();await vm.runInContext('queue',w.ctx);const day=86400000,shanghaiDay=new Date(Date.now()+8*3600000).getUTCDay()||7,offset=((5-shanghaiDay+7)%7)||7,date=offset=>new Date(Date.now()+8*3600000+offset*day).toISOString().slice(0,10),original=date(offset),target=date(offset+2);
+ w.data.local.settings={lessonsEnabled:true,sound:false};w.data.local.lessons=[{id:'1',name:'测试课',days:[5],time:'10:00',from:original,to:date(offset+35),weeks:'all',location:'原教室'}];await w.ctx.plan();
+ await w.ctx.dispatch({type:'addLessonChange',id:'1',change:{date:original,kind:'move',toDate:target,time:'14:30',location:'临时教室'}},{});
+ assert.equal(JSON.stringify(w.data.local.lessons[0].changes),JSON.stringify([{date:original,kind:'move',toDate:target,time:'14:30',location:'临时教室'}]));assert.equal(w.data.local.due['lesson:1'].moved,true);assert.ok(w.alarms.has('lesson:1'));
+ const classAt=Date.now()+20*60000;w.data.local.due['lesson:1']={key:'moved-test',classAt,when:Date.now()-1,date:target,time:'14:30',location:'临时教室',moved:true,row:w.data.local.lessons[0]};await w.ctx.remindLesson('lesson:1');
+ assert.equal(w.notices.length,1);assert.match(w.notices[0].message,/14:30（改期）/);assert.match(w.notices[0].message,/临时教室/);
+ await w.ctx.dispatch({type:'removeLessonChange',id:'1',date:original},{});assert.equal(JSON.stringify(w.data.local.lessons[0].changes),'[]');assert.equal(w.data.local.due['lesson:1'].moved,false);
+});
 test('course login expiry alerts once and rearms after successful re-login',async()=>{
  const w=worker();await vm.runInContext('queue',w.ctx);const c={id:'course',url:'https://oc.sjtu.edu.cn/courses/123/external_tools/6650',name:'数学'};w.data.local.courses=[c];w.data.local.settings.coursesEnabled=true;w.data.local.courseStates={[c.id]:{tabId:7}};
  w.chrome.tabs.query=async()=>[{id:7,url:'https://jaccount.sjtu.edu.cn/oauth2/authorize?client_id=test',status:'complete'}];

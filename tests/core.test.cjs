@@ -30,3 +30,20 @@ test('schedule rejects invalid dates and validates odd/even anchor Monday',()=>{
  assert.throws(()=>C.lesson({...row,from:'2026-02-30'}));assert.throws(()=>C.lesson({...row,weeks:'odd',anchor:'2026-10-06'}));
  const n=C.nextLesson({...row,weeks:'even',anchor:'2026-10-05'},Date.parse('2026-10-08T20:00:00+08:00'));assert.equal(n.date,'2026-10-16');
 });
+test('single-class cancellation and rescheduling replace only the matching occurrence',()=>{
+ const now=Date.parse('2026-10-16T20:00:00+08:00');
+ const skipped=C.nextLesson({...row,changes:[{date:'2026-10-23',kind:'skip'}]},now);assert.equal(skipped.date,'2026-10-30');
+ const changed={...row,location:'原教室',changes:[{date:'2026-10-23',kind:'move',toDate:'2026-10-25',time:'14:30',location:'临时教室'}]};
+ const moved=C.nextLesson(changed,now);assert.equal(moved.date,'2026-10-25');assert.equal(moved.time,'14:30');assert.equal(moved.location,'临时教室');assert.equal(moved.originalDate,'2026-10-23');assert.equal(moved.moved,true);
+ assert.equal(moved.when,Date.parse('2026-10-25T14:00:00+08:00'));
+ assert.equal(C.nextLesson(changed,Date.parse('2026-10-24T20:00:00+08:00')).date,'2026-10-25');
+ assert.equal(C.nextLesson(changed,now,{[moved.key]:now}).date,'2026-10-30');
+});
+test('schedule adjustments require scheduled original dates, unique records and valid replacements',()=>{
+ const changes=[{date:'2026-10-23',kind:'skip'}];
+ assert.throws(()=>C.lesson({...row,changes:[{date:'2026-10-22',kind:'skip'}]}),/已安排/);
+ assert.throws(()=>C.lesson({...row,changes:[...changes,...changes]}),/只能添加一条/);
+ assert.throws(()=>C.lesson({...row,changes:[{date:'2026-10-23',kind:'move',toDate:'2027-02-01',time:'14:30'}]}),/新日期/);
+ assert.throws(()=>C.lesson({...row,changes:[{date:'2026-10-23',kind:'move',toDate:'2026-10-25',time:'25:00'}]}),/新日期/);
+ assert.deepEqual(C.lesson({...row,changes}).changes,changes);
+});

@@ -5,6 +5,20 @@ function element(tag,text,className){const e=document.createElement(tag);if(text
 function empty(title,text){const box=element('div',undefined,'empty');box.append(element('strong',title),element('span',text));return box;}
 function time(value){return new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});}
 function action(text,run,danger=false){const b=element('button',text,'text-button'+(danger?' danger':''));b.type='button';b.onclick=async()=>{b.disabled=true;try{message('');await run();await refresh();}catch(e){message(e.message);}finally{b.disabled=false;}};return b;}
+function changeLabel(c){return c.kind==='skip'?`${c.date} 停课`:`${c.date} → ${c.toDate} ${c.time}`;}
+function lessonChangeForm(r){
+  const changes=r.changes||[],details=element('details',undefined,'lesson-change');details.append(element('summary',`停课 / 单次改期${changes.length?' ('+changes.length+')':''}`));
+  for(const c of changes){const row=element('div',undefined,'lesson-change-row');row.append(element('span',changeLabel(c)),action('撤销',()=>send('removeLessonChange',{id:r.id,date:c.date}),true));details.append(row);}
+  const form=element('form');const date=element('input');date.name='date';date.type='date';date.required=true;date.min=r.from;date.max=r.to;
+  const kind=element('select');kind.name='kind';for(const [value,text] of [['skip','停课（取消本次）'],['move','改期（调整到另一时间）']]){const option=element('option',text);option.value=value;kind.append(option);}
+  const dateLabel=element('label','原上课日期');dateLabel.append(date);const kindLabel=element('label','调整方式');kindLabel.append(kind);
+  const move=element('div');const target=element('input');target.name='toDate';target.type='date';target.min=r.from;target.max=r.to;const clock=element('input');clock.name='time';clock.type='time';const location=element('input');location.name='location';location.maxLength=120;location.placeholder=r.location||'不填则沿用原地点';
+  const targetLabel=element('label','改期后的日期');targetLabel.append(target);const clockLabel=element('label','改期后的时间');clockLabel.append(clock);const locationLabel=element('label','改期后的地点（可选）');locationLabel.append(location);const grid=element('div',undefined,'grid');grid.append(targetLabel,clockLabel);move.append(grid,locationLabel);
+  const toggle=()=>{const moved=kind.value==='move';move.hidden=!moved;target.required=moved;clock.required=moved;};kind.onchange=toggle;toggle();
+  const submit=element('button','保存调整','primary');submit.type='submit';form.append(dateLabel,kindLabel,move,submit);
+  form.onsubmit=async event=>{event.preventDefault();const f=new FormData(form),change={date:f.get('date'),kind:f.get('kind')};if(change.kind==='move')Object.assign(change,{toDate:f.get('toDate'),time:f.get('time'),location:f.get('location')});if(await run('addLessonChange',{id:r.id,change}))details.open=false;};
+  details.append(form);return details;
+}
 function render(){
   const q=state.qr||{};const result=state.autoSign;
   $('autoSignResult').hidden=!result;$('autoSignResult').textContent=result?.message||'';
@@ -18,7 +32,7 @@ function render(){
   $('courseList').replaceChildren();if(!state.courses.length)$('courseList').append(empty('还没有监控课程','添加课程编号，或粘贴签到工具地址。'));
   for(const c of state.courses){const status=state.courseStates?.[c.id]||{};const box=element('div',undefined,'item');box.append(element('div',c.name,'item-title'),element('p',state.settings.coursesEnabled?(status.status||'等待检查'):'监控已关闭'));if(status.lastRead)box.append(element('small','最近识别 '+time(status.lastRead)));const buttons=element('div',undefined,'item-actions');buttons.append(action('打开课程 ↗',()=>send('openCourse',{id:c.id})),action('移除',()=>send('removeCourse',{id:c.id}),true));box.append(buttons);$('courseList').append(box);}
   $('lessonList').replaceChildren();if(!state.lessons.length)$('lessonList').append(empty('还没有课前提醒','按课表添加课程，提前 30 分钟提醒。'));
-  for(const r of state.lessons){const box=element('div',undefined,'item');box.append(element('div',r.name,'item-title'),element('p','周'+r.days.map(d=>'一二三四五六日'[d-1]).join('、')+' '+r.time+' · '+({all:'每周',odd:'单周',even:'双周'}[r.weeks])));box.append(element('small',r.from+' 至 '+r.to+(r.location?' · '+r.location:'')));const due=state.due?.['lesson:'+r.id];box.append(element('small',state.settings.lessonsEnabled?(due?'下次提醒 '+time(due.when):'当前无待提醒日期'):'课前提醒已关闭'));box.append(action('移除',()=>send('removeLesson',{id:r.id}),true));$('lessonList').append(box);}
+  for(const r of state.lessons){const box=element('div',undefined,'item');box.append(element('div',r.name,'item-title'),element('p','周'+r.days.map(d=>'一二三四五六日'[d-1]).join('、')+' '+r.time+' · '+({all:'每周',odd:'单周',even:'双周'}[r.weeks])));box.append(element('small',r.from+' 至 '+r.to+(r.location?' · '+r.location:'')));const due=state.due?.['lesson:'+r.id];box.append(element('small',state.settings.lessonsEnabled?(due?'下次提醒 '+time(due.when)+(due.moved?' · 改期':''):'当前无待提醒日期'):'课前提醒已关闭'));box.append(lessonChangeForm(r),action('移除',()=>send('removeLesson',{id:r.id}),true));$('lessonList').append(box);}
   $('logs').replaceChildren();for(const log of (state.logs||[]).slice(0,10)){const row=element('div',log.message,'event');row.append(element('small',time(log.time)));$('logs').append(row);}if(!state.logs?.length)$('logs').append(element('p','还没有事件记录','intro'));
 }
 async function refresh(){if(loading)return;loading=true;try{state=await send('state',{tabId});render();}catch(e){message(e.message);}finally{loading=false;}}

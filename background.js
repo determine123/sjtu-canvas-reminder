@@ -52,7 +52,8 @@ async function remindLesson(name){
   if(event.when>Date.now()){await chrome.alarms.create(name,{when:event.when});return;}
   sentLessons[event.key]=Date.now();await local.set({sentLessons});
   const minutes=Math.max(1,Math.ceil((event.classAt-Date.now())/60000));
-  await notify(name,'即将上课 · '+event.row.name,`${event.date} ${event.row.time} · 约 ${minutes} 分钟后\n${event.row.location||'记得查看课程安排'}`,{kind:'lesson'});await plan();
+  const lessonTime=event.time||event.row.time,location=event.location??event.row.location;
+  await notify(name,'即将上课 · '+event.row.name,`${event.date} ${lessonTime}${event.moved?'（改期）':''} · 约 ${minutes} 分钟后\n${location||'记得查看课程安排'}`,{kind:'lesson'});await plan();
 }
 async function poll(){
   const {settings:s,courses}=await config();if(!s.coursesEnabled)return;
@@ -175,6 +176,8 @@ async function dispatch(m,sender){
     case 'removeCourse':{const {courses}=await config(),{courseStates={}}=await local.get('courseStates');delete courseStates[m.id];await local.set({courses:courses.filter(c=>c.id!==m.id),courseStates});await ack('course:'+m.id,'login:'+m.id,'health:'+m.id);break;}
     case 'openCourse':{const c=(await config()).courses.find(c=>c.id===m.id);if(!c)throw Error('课程不存在');await chrome.tabs.create({url:c.url});break;}
     case 'addLesson':{const r=Core.lesson(m.lesson),{lessons}=await config();if(lessons.length>=100)throw Error('最多添加 100 条课前提醒');r.id=crypto.randomUUID();await local.set({lessons:[...lessons,r]});await plan();break;}
+    case 'addLessonChange':{const {lessons}=await config(),index=lessons.findIndex(r=>r.id===m.id);if(index<0)throw Error('课前提醒不存在');const row=Core.lesson({...lessons[index],changes:[...(lessons[index].changes||[]),m.change]});await local.set({lessons:lessons.map((r,i)=>i===index?row:r)});await plan();break;}
+    case 'removeLessonChange':{const {lessons}=await config(),index=lessons.findIndex(r=>r.id===m.id);if(index<0)throw Error('课前提醒不存在');const row=Core.lesson({...lessons[index],changes:(lessons[index].changes||[]).filter(c=>c.date!==m.date)});await local.set({lessons:lessons.map((r,i)=>i===index?row:r)});await plan();break;}
     case 'removeLesson':{const {lessons}=await config();await local.set({lessons:lessons.filter(r=>r.id!==m.id)});await plan();await ack('lesson:'+m.id);break;}
     case 'ack':return {audioStopped:await ack(m.id)};
     case 'qrAck':await ack('qr:'+sender.tab.id);break;

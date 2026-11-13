@@ -18,19 +18,39 @@
   }
   const dateOf=t=>new Date(t+8*3600000).toISOString().slice(0,10);
   function dateValid(s){return /^\d{4}-\d{2}-\d{2}$/.test(s||'')&&Number.isFinite(Date.parse(s+'T00:00:00+08:00'))&&dateOf(Date.parse(s+'T00:00:00+08:00'))===s;}
+  const timeValid=s=>/^([01]\d|2[0-3]):[0-5]\d$/.test(s||'');
+  function scheduledDate(r,date){
+    if(!dateValid(date)||date<r.from||date>r.to)return false;
+    const t=Date.parse(date+'T00:00:00+08:00'),day=new Date(t+8*3600000).getUTCDay()||7;
+    if(!r.days.includes(day))return false;
+    if(r.weeks!=='all'){const week=Math.floor((t-Date.parse(r.anchor+'T00:00:00+08:00'))/604800000)+1;if(week<1||(week%2===1)!==(r.weeks==='odd'))return false;}
+    return true;
+  }
   function lesson(r){
     if(!r||typeof r.name!=='string'||!r.name.trim()||!Array.isArray(r.days)||!r.days.length||r.days.some(d=>!Number.isInteger(d)||d<1||d>7)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.time||'')||!dateValid(r.from)||!dateValid(r.to)||r.from>r.to)throw Error('请检查课程名称、星期、时间和起止日期');
     const weeks=r.weeks||'all';if(!['all','odd','even'].includes(weeks))throw Error('周次设置不正确');
     if(weeks!=='all'&&(!dateValid(r.anchor)||new Date(r.anchor+'T12:00:00+08:00').getUTCDay()!==1))throw Error('单双周需填写第一周的周一日期');
-    return {id:typeof r.id==='string'?r.id:undefined,name:r.name.trim().slice(0,60),days:[...new Set(r.days)],time:r.time,from:r.from,to:r.to,location:String(r.location||'').slice(0,120),weeks,anchor:weeks==='all'?'':r.anchor};
+    const out={id:typeof r.id==='string'?r.id:undefined,name:r.name.trim().slice(0,60),days:[...new Set(r.days)],time:r.time,from:r.from,to:r.to,location:String(r.location||'').slice(0,120),weeks,anchor:weeks==='all'?'':r.anchor};
+    if(r.changes!==undefined&&!Array.isArray(r.changes))throw Error('停课或改期记录格式不正确');
+    if((r.changes||[]).length>50)throw Error('每门课最多添加 50 条停课或改期记录');
+    const seen=new Set();out.changes=(r.changes||[]).map(c=>{
+      if(!c||typeof c!=='object'||!scheduledDate(out,c.date))throw Error('调整日期必须是起止范围内已安排的上课日');
+      if(seen.has(c.date))throw Error('同一上课日只能添加一条停课或改期记录');seen.add(c.date);
+      if(c.kind==='skip')return {date:c.date,kind:'skip'};
+      if(c.kind!=='move'||!dateValid(c.toDate)||c.toDate<out.from||c.toDate>out.to||!timeValid(c.time))throw Error('改期需填写起止范围内的新日期和上课时间');
+      return {date:c.date,kind:'move',toDate:c.toDate,time:c.time,location:String(c.location??out.location??'').slice(0,120)};
+    }).sort((a,b)=>a.date.localeCompare(b.date));
+    return out;
   }
   function nextLesson(row,now=Date.now(),sent={}){
-    const r=lesson(row);const start=Math.max(Date.parse(dateOf(now)+'T00:00:00+08:00'),Date.parse(r.from+'T00:00:00+08:00'));
-    for(let i=0;i<15;i++){const t=start+i*86400000;const date=dateOf(t);if(date>r.to)break;const day=new Date(t+8*3600000).getUTCDay()||7;if(!r.days.includes(day))continue;
-      if(r.weeks!=='all'){const week=Math.floor((t-Date.parse(r.anchor+'T00:00:00+08:00'))/604800000)+1;if(week<1||(week%2===1)!==(r.weeks==='odd'))continue;}
-      const classAt=Date.parse(date+'T'+r.time+':00+08:00');const key=JSON.stringify([r.id||r.name,date,r.time]);if(classAt<=now||sent[key])continue;
-      return {key,classAt,when:Math.max(now+1000,classAt-1800000),date};
-    }return null;
+    const r=lesson(row),candidates=[];
+    for(const c of r.changes){if(c.kind!=='move')continue;const classAt=Date.parse(c.toDate+'T'+c.time+':00+08:00'),key=JSON.stringify([r.id||r.name,'move',c.date,c.toDate,c.time]);
+      if(classAt>now&&!sent[key])candidates.push({key,classAt,when:Math.max(now+1000,classAt-1800000),date:c.toDate,time:c.time,location:c.location,moved:true,originalDate:c.date});}
+    const start=Math.max(Date.parse(dateOf(now)+'T00:00:00+08:00'),Date.parse(r.from+'T00:00:00+08:00')),end=Date.parse(r.to+'T00:00:00+08:00'),changes=new Map(r.changes.map(c=>[c.date,c]));
+    for(let t=start;t<=end;t+=86400000){const date=dateOf(t);if(changes.has(date)||!scheduledDate(r,date))continue;
+      const classAt=Date.parse(date+'T'+r.time+':00+08:00'),key=JSON.stringify([r.id||r.name,date,r.time]);if(classAt<=now||sent[key])continue;
+      candidates.push({key,classAt,when:Math.max(now+1000,classAt-1800000),date,time:r.time,location:r.location,moved:false});}
+    candidates.sort((a,b)=>a.classAt-b.classAt);return candidates[0]||null;
   }
   function table(doc){
     const clean=s=>String(s||'').replace(/\s+/g,' ').trim();const owners=new Map(),maps=new Map(),records=[];
